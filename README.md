@@ -33,7 +33,7 @@ Create collections for different projects or workflows, then install only the pa
 In Unity's Package Manager, choose **+ → Install package from Git URL**:
 
 ```text
-https://github.com/Tairos/UnityPackageCatalog.git?path=/Packages/io.github.tairos.unity-package-catalog
+https://github.com/Tairos/unity-package-catalog.git?path=/Packages/io.github.tairos.unity-package-catalog
 ```
 
 Unity needs Git installed on your computer to install this package.
