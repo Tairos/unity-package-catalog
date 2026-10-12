@@ -42,9 +42,9 @@ namespace UnityPackageCatalog
 
         internal void ReloadDocument()
         {
-            original = File.ReadAllText(Path); draft = null; message = null;
-            try { draft = BuiltInPresetDocument.Parse(Path, original); baseline = JsonUtility.ToJson(draft); }
-            catch (Exception error) { message = error.Message; }
+            draft = null; message = null;
+            try { original = File.ReadAllText(Path); draft = BuiltInPresetDocument.Parse(Path, original); baseline = JsonUtility.ToJson(draft); }
+            catch (Exception error) { ReportError(error); }
             StateChanged?.Invoke(false); Render();
         }
 
@@ -54,15 +54,15 @@ namespace UnityPackageCatalog
             Hint(Path); status = new Label(message ?? ""); status.AddToClassList("upc-wrap");
             if (draft == null)
             {
-                root.Add(new HelpBox(message, HelpBoxMessageType.Error));
+                Hint("Repair the preset below, then validate and save. See Console for details.");
                 var repair = new TextField("Repair preset") { multiline = true, value = original }; repair.AddToClassList("upc-json"); root.Add(repair);
-                root.Add(new Button(() => { try { Write(BuiltInPresetDocument.Parse(Path, repair.value)); } catch (Exception error) { SetMessage(error.Message); } }) { text = "Validate and save" });
+                root.Add(new Button(() => { try { Write(BuiltInPresetDocument.Parse(Path, repair.value)); } catch (Exception error) { ReportError(error); } }) { text = "Validate and save" });
                 root.Add(status); return;
             }
             var name = new TextField("Preset name") { value = draft.displayName };
             name.RegisterValueChangedCallback(e => { draft.displayName = e.newValue; Changed(); }); root.Add(name);
             Hint("Created for Unity " + (string.IsNullOrEmpty(draft.unityVersion) ? "an unspecified version" : draft.unityVersion) + ". Running Unity " + Application.unityVersion + ".");
-            Hint("Apply this preset once to enable or disable its listed modules. Other modules stay as they are. Presets are independent and do not enforce build requirements.");
+            Hint("Enable adds a direct project dependency; Disable removes it. Modules needed by other packages remain installed as dependencies. The Console lists results and explains any actions that cannot be applied.");
             root.Add(new Button(OpenPicker) { text = "Add Built-in module", name = "add-built-in" });
             var heading = new Label("Module actions (" + draft.builtInModules.Length + ")"); heading.AddToClassList("upc-section-title"); root.Add(heading);
             foreach (var rule in draft.builtInModules)
@@ -105,15 +105,20 @@ namespace UnityPackageCatalog
         {
             if (!TrySave()) return;
             try { if (apply) BuiltInModuleRequirements.Apply(Path); else BuiltInModuleRequirements.Check(Path); }
-            catch (Exception error) { SetMessage(error.Message); }
+            catch (Exception error) { ReportError(error); }
         }
         void Hint(string text) { var hint = new Label(text); hint.AddToClassList("upc-subtitle"); root.Add(hint); }
         void Changed() { StateChanged?.Invoke(IsDirty); SetMessage(IsDirty ? "Unsaved changes" : ""); }
-        void SetMessage(string value) { message = value; status.text = value; }
+        void SetMessage(string value) { message = value; if (status != null) status.text = value; }
+        void ReportError(Exception error)
+        {
+            BuiltInModuleRequirements.LogError(Path, error.Message);
+            SetMessage("See Console for preset diagnostics.");
+        }
         internal bool TrySave()
         {
             try { Write(draft); return true; }
-            catch (Exception error) { SetMessage(error.Message); return false; }
+            catch (Exception error) { ReportError(error); return false; }
         }
         void Write(BuiltInPresetDocument preset)
         {

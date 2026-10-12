@@ -1,14 +1,69 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
+using UnityEngine.TestTools;
 
 namespace UnityPackageCatalog.Tests
 {
     public class CatalogInspectorTests
     {
+        [Test]
+        public void MalformedPresetLogsToConsoleWithoutInspectorErrorOrRepeatedRenderLogs()
+        {
+            var path = "Assets/UPCInvalidPreset_" + Guid.NewGuid().ToString("N") + ".upcbuiltinjson";
+            Editor editor = null;
+            try
+            {
+                File.WriteAllText(path, "{\"schemaVersion\":1}");
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+                editor = Editor.CreateEditor(AssetDatabase.LoadMainAssetAtPath(path));
+                LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("[UPC] " + path + ": A Built-in preset needs displayName and builtInModules.")));
+                var root = editor.CreateInspectorGUI();
+                Assert.That(root.Query<HelpBox>().ToList().Any(box => box.messageType == HelpBoxMessageType.Error), Is.False);
+                Assert.That(root.Query<Label>().ToList().Any(label => (label.text ?? "").Contains("needs displayName")), Is.False);
+                Assert.That(root.Query<TextField>().ToList().Any(field => field.label == "Repair preset"), Is.True);
+                typeof(UpcBuiltInPresetEditor).GetMethod("Render", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(editor, null);
+                LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                if (editor != null) UnityEngine.Object.DestroyImmediate(editor);
+                AssetDatabase.DeleteAsset(path);
+            }
+        }
+
+        [Test]
+        public void ExternalPresetEditLogsSaveFailureAndPreservesFile()
+        {
+            var path = "Assets/UPCExternalPreset_" + Guid.NewGuid().ToString("N") + ".upcbuiltinjson";
+            UpcBuiltInPresetEditor editor = null;
+            try
+            {
+                File.WriteAllText(path, JsonUtility.ToJson(new BuiltInPresetDocument { displayName = "Original", builtInModules = Array.Empty<BuiltInModuleRule>() }));
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+                editor = (UpcBuiltInPresetEditor)Editor.CreateEditor(AssetDatabase.LoadMainAssetAtPath(path));
+                var root = editor.CreateInspectorGUI();
+                root.Q<TextField>().value = "Draft";
+                var external = JsonUtility.ToJson(new BuiltInPresetDocument { displayName = "External", builtInModules = Array.Empty<BuiltInModuleRule>() });
+                File.WriteAllText(path, external);
+                LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("[UPC] " + path + ": The asset changed externally.")));
+                Assert.That(editor.TrySave(), Is.False);
+                Assert.That(File.ReadAllText(path), Is.EqualTo(external));
+                Assert.That(root.Query<Label>().ToList().Any(label => (label.text ?? "").Contains("changed externally")), Is.False);
+            }
+            finally
+            {
+                if (editor != null) UnityEngine.Object.DestroyImmediate(editor);
+                AssetDatabase.DeleteAsset(path);
+            }
+        }
+
         [TestCase(false)]
         [TestCase(true)]
         public void ImportedAssetsHaveValidScriptsAndInlineAuthoring(bool preset)

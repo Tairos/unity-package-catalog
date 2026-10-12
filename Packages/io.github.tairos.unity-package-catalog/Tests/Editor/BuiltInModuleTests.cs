@@ -18,6 +18,92 @@ namespace UnityPackageCatalog.Tests
         ModulePackageState Module(string name, bool direct = true, params string[] dependencies) =>
             new ModulePackageState { name = name, version = "1.0.0", builtIn = true, direct = direct, dependencies = dependencies };
 
+        [Test] public void DependencyRetentionDoesNotBlockEnablesOrExplicitRemovals()
+        {
+            var available = new[] { Module(Audio), Module(Physics), Module(Vehicles, true, Physics), Module(Json) };
+            var installed = new[] { Module(Audio), Module(Physics), Module(Vehicles, true, Physics) };
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "excluded"), Rule(Physics, "excluded"), Rule(Json, "required") }, available, installed);
+            Assert.That(plan.blocked, Is.Empty);
+            Assert.That(plan.remove, Is.EquivalentTo(new[] { Audio, Physics }));
+            Assert.That(plan.add, Is.EqualTo(new[] { Json + "@1.0.0" }));
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.retained.Single(), Does.Contain(Vehicles + " → " + Physics));
+        }
+        [Test] public void RequiredEnableRetainsExcludedDependencyWithoutBlockingManifestRemoval()
+        {
+            var modules = new[] { Module(Physics), Module(Vehicles, true, Physics) };
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Vehicles, "required"), Rule(Physics, "excluded") }, modules, Array.Empty<ModulePackageState>());
+            Assert.That(plan.add, Is.EqualTo(new[] { Vehicles + "@1.0.0" }));
+            Assert.That(plan.blocked, Is.Empty);
+            Assert.That(plan.retained.Single(), Does.Contain(Vehicles + " → " + Physics));
+            Assert.That(plan.remove, Is.Empty);
+        }
+        [Test] public void ExcludedParentAndDependenciesLoseDirectEntriesEvenWhenRetained()
+        {
+            var available = new[] { Module(Physics), Module(Vehicles, true, Physics), Module(Audio) };
+            var installed = new[] { Module(Physics), Module(Vehicles, true, Physics), Module(Audio),
+                new ModulePackageState { name = "com.example.game", direct = true, dependencies = new[] { Vehicles } } };
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Physics, "excluded"), Rule(Vehicles, "excluded"), Rule(Audio, "excluded") }, available, installed);
+            Assert.That(plan.blocked, Is.Empty);
+            Assert.That(plan.remove, Is.EquivalentTo(new[] { Audio, Physics, Vehicles }));
+            Assert.That(plan.retained, Has.Length.EqualTo(2));
+        }
+        [Test] public void UnavailableEnableDoesNotBlockSafeRemoval()
+        {
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "excluded"), Rule(Physics, "required") }, new[] { Module(Audio) }, new[] { Module(Audio) });
+            Assert.That(plan.blocked, Is.EqualTo(new[] { Physics }));
+            Assert.That(plan.remove, Is.EqualTo(new[] { Audio }));
+            Assert.That(plan.add, Is.Empty);
+        }
+        [Test] public void ExcludingAbsentUnavailableModuleIsAlreadySatisfied()
+        {
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "excluded") }, Array.Empty<ModulePackageState>(), Array.Empty<ModulePackageState>());
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.blocked, Is.Empty);
+            Assert.That(plan.HasChanges, Is.False);
+        }
+        [Test] public void AvailableButUninstalledModuleIsNotReportedAsRetained()
+        {
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "excluded") }, new[] { Module(Audio, false) }, Array.Empty<ModulePackageState>());
+            Assert.That(plan.retained, Is.Empty);
+            Assert.That(plan.HasChanges, Is.False);
+        }
+        [Test] public void IndirectModuleIsSatisfiedWithoutClaimingItIsDisabled()
+        {
+            var modules = new[] { Module(Audio), Module(Physics, false) };
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "excluded"), Rule(Physics, "excluded") }, modules, modules);
+            Assert.That(plan.remove, Is.EqualTo(new[] { Audio }));
+            Assert.That(plan.blocked, Is.Empty);
+            Assert.That(plan.errors, Is.Empty);
+            var rules = new[] { Rule(Physics, "excluded") };
+            Assert.That(BuiltInModulePlan.Violations(rules, modules), Is.Empty);
+            Assert.That(BuiltInModulePlan.SatisfiedActions(rules, modules).Single(), Does.Contain("still installed as dependency"));
+        }
+
+        [Test] public void EnablePromotesIndirectModuleToDirectDependency()
+        {
+            var modules = new[] { Module(Audio, false) };
+            var rules = new[] { Rule(Audio, "required") };
+            var plan = BuiltInModulePlan.Create(rules, modules, modules);
+            Assert.That(plan.add, Is.EqualTo(new[] { Audio + "@1.0.0" }));
+            Assert.That(BuiltInModulePlan.Violations(rules, modules), Has.Length.EqualTo(1));
+        }
+        [Test] public void VerificationReportsRetainedDependencyAsSuccessWithReason()
+        {
+            var modules = new[] { Module(Physics, false), Module(Vehicles, true, Physics) };
+            var rules = new[] { Rule(Physics, "excluded") };
+            Assert.That(BuiltInModulePlan.Violations(rules, modules), Is.Empty);
+            Assert.That(BuiltInModulePlan.SatisfiedActions(rules, modules).Single(), Does.Contain("still installed as dependency"));
+            Assert.That(BuiltInModulePlan.DependencyRetentions(rules, modules).Single(), Does.Contain(Vehicles + " → " + Physics));
+        }
+        [Test] public void VerificationStillRejectsExcludedDirectDependency()
+        {
+            var rules = new[] { Rule(Audio, "excluded") };
+            Assert.That(BuiltInModulePlan.Violations(rules, new[] { Module(Audio) }), Has.Length.EqualTo(1));
+            Assert.That(BuiltInModulePlan.Violations(rules, new[] { Module(Audio, false) }), Is.Empty);
+            Assert.That(BuiltInModulePlan.Violations(rules, Array.Empty<ModulePackageState>()), Is.Empty);
+        }
+
         [Test] public void RequiredMissingModuleIsEnabledWithEditorVersion()
         {
             var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "required") }, new[] { Module(Audio) }, Array.Empty<ModulePackageState>());
@@ -30,11 +116,13 @@ namespace UnityPackageCatalog.Tests
             Assert.That(plan.errors, Is.Empty);
             Assert.That(plan.remove, Is.EqualTo(new[] { Audio }));
         }
-        [Test] public void DependencyBlocksExcludedModule()
+        [Test] public void DependencyDoesNotBlockRemovingDirectEntry()
         {
             var modules = new[] { Module(Physics), Module(Vehicles, true, Physics) };
             var plan = BuiltInModulePlan.Create(new[] { Rule(Physics, "excluded") }, modules, modules);
-            Assert.That(plan.errors.Single(), Does.Contain(Vehicles + " → " + Physics));
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.remove, Is.EqualTo(new[] { Physics }));
+            Assert.That(plan.retained.Single(), Does.Contain(Vehicles + " → " + Physics));
         }
         [Test] public void ExcludingDependentModulesTogetherIsAllowed()
         {
@@ -50,24 +138,28 @@ namespace UnityPackageCatalog.Tests
             Assert.That(plan.errors, Is.Empty);
             Assert.That(plan.remove, Is.EqualTo(new[] { Vehicles }));
         }
-        [Test] public void MissingRequiredModuleCannotDependOnExcludedModule()
+        [Test] public void MissingRequiredModuleMayRetainExcludedDependency()
         {
             var modules = new[] { Module(Physics), Module(Vehicles, true, Physics) };
             var plan = BuiltInModulePlan.Create(new[] { Rule(Physics, "excluded"), Rule(Vehicles, "required") }, modules, Array.Empty<ModulePackageState>());
-            Assert.That(plan.errors.Single(), Does.Contain(Vehicles));
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.retained.Single(), Does.Contain(Vehicles));
         }
-        [Test] public void ThirdPartyTransitiveDependencyBlocksExclusion()
+        [Test] public void ThirdPartyTransitiveDependencyExplainsRetention()
         {
             var installed = new[] { Module(Physics, false), Module(Vehicles, false, Physics),
-                new ModulePackageState { name = "com.example.game", dependencies = new[] { Vehicles } } };
+                new ModulePackageState { name = "com.example.game", direct = true, dependencies = new[] { Vehicles } } };
             var plan = BuiltInModulePlan.Create(new[] { Rule(Physics, "excluded") }, installed.Where(p => p.builtIn).ToArray(), installed);
-            Assert.That(plan.errors, Has.Some.Contains("com.example.game → " + Vehicles + " → " + Physics));
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.retained, Has.Some.Contains("com.example.game → " + Vehicles + " → " + Physics));
         }
-        [Test] public void ToolDependencyPreventsJsonReaderExclusion()
+        [Test] public void ToolDependencyRetainsJsonReaderAfterExplicitRemoval()
         {
-            var installed = new[] { Module(Json), new ModulePackageState { name = "io.github.tairos.unity-package-catalog", dependencies = new[] { Json } } };
+            var installed = new[] { Module(Json), new ModulePackageState { name = "io.github.tairos.unity-package-catalog", direct = true, dependencies = new[] { Json } } };
             var plan = BuiltInModulePlan.Create(new[] { Rule(Json, "excluded") }, new[] { Module(Json) }, installed);
-            Assert.That(plan.errors, Has.Some.Contains("io.github.tairos.unity-package-catalog"));
+            Assert.That(plan.errors, Is.Empty);
+            Assert.That(plan.remove, Is.EqualTo(new[] { Json }));
+            Assert.That(plan.retained, Has.Some.Contains("io.github.tairos.unity-package-catalog"));
         }
         [Test] public void UnavailableModuleIsReported()
         {
@@ -77,7 +169,7 @@ namespace UnityPackageCatalog.Tests
         [Test] public void AlreadySatisfiedRulesNeedNoChanges()
         {
             var modules = new[] { Module(Audio), Module(Physics) };
-            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "required"), Rule(Physics, "excluded") }, modules, new[] { Module(Audio, false) });
+            var plan = BuiltInModulePlan.Create(new[] { Rule(Audio, "required"), Rule(Physics, "excluded") }, modules, new[] { Module(Audio) });
             Assert.That(plan.errors, Is.Empty);
             Assert.That(plan.HasChanges, Is.False);
         }
@@ -154,7 +246,7 @@ namespace UnityPackageCatalog.Tests
                 while (BuiltInModuleRequirements.Busy && UnityEditor.EditorApplication.timeSinceStartup < deadline) yield return null;
                 Assert.That(BuiltInModuleRequirements.Busy, Is.False, "Preview timed out");
                 Assert.That(BuiltInModuleRequirements.Status, Does.Not.Contain("failed").And.Not.Contain("unavailable"));
-                Assert.That(BuiltInModuleRequirements.Status, Does.Contain("satisfied").Or.Contain("Enable:"));
+                Assert.That(BuiltInModuleRequirements.Status, Does.Contain("Preview complete").And.Contain("0 skipped"));
             }
             finally { UnityEditor.AssetDatabase.DeleteAsset(path); CatalogSettings.SetEnabled(previousEnabled); }
         }

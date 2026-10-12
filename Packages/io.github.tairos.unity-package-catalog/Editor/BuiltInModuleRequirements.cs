@@ -20,6 +20,16 @@ namespace UnityPackageCatalog
         static BuiltInModuleRule[] rules;
         static bool apply, verifying;
         static string versionNotice;
+        static string[] skipped = Array.Empty<string>();
+        static int skippedCount;
+
+        [Serializable]
+        internal sealed class PendingOperation
+        {
+            public BuiltInModuleRule[] builtInModules;
+            public string[] skipped;
+            public int skippedCount;
+        }
         public static string PresetPath => SessionState.GetString("UnityPackageCatalog.ModulePresetPath", "");
         static double deadline;
         public static bool Busy => search != null || list != null || change != null;
@@ -53,6 +63,7 @@ namespace UnityPackageCatalog
             versionNotice = preset.VersionNotice;
             apply = shouldApply;
             verifying = false;
+            skipped = Array.Empty<string>(); skippedCount = 0;
             if (rules.Length == 0) { SetStatus("This preset has no built-in module actions."); return; }
             SetStatus("Checking available built-in modules and project dependencies…");
             deadline = EditorApplication.timeSinceStartup + 240;
@@ -70,7 +81,10 @@ namespace UnityPackageCatalog
         {
             var json = SessionState.GetString(PendingKey, "");
             if (string.IsNullOrEmpty(json) || Busy) return;
-            rules = JsonUtility.FromJson<BuiltInPresetDocument>(json).builtInModules;
+            var pending = JsonUtility.FromJson<PendingOperation>(json);
+            rules = pending.builtInModules;
+            skipped = pending.skipped ?? Array.Empty<string>();
+            skippedCount = pending.skippedCount;
             verifying = true;
             SetStatus("Verifying preset actions after package resolution…");
             deadline = EditorApplication.timeSinceStartup + 240;
@@ -111,24 +125,74 @@ namespace UnityPackageCatalog
                 list = null;
                 if (verifying)
                 {
-                    var violations = BuiltInModulePlan.Violations(rules, installed);
-                    SetStatus(violations.Length == 0 ? "Built-in preset applied and verified." : "Preset actions remain unsatisfied:\n" + string.Join("\n", violations));
+                    ReportResults(rules, installed, skipped, skippedCount);
                     SessionState.EraseString(PendingKey);
                     return;
                 }
                 var plan = BuiltInModulePlan.Create(rules, available, installed);
-                SetStatus((string.IsNullOrEmpty(versionNotice) ? "" : versionNotice + "\n") + plan.Describe());
-                if (!apply || plan.errors.Length != 0 || !plan.HasChanges) return;
-                SessionState.SetString(PendingKey, JsonUtility.ToJson(new BuiltInPresetDocument { builtInModules = rules }));
-                SetStatus("Applying Built-in preset…\n" + plan.Describe());
+                if (!string.IsNullOrEmpty(versionNotice))
+                    Debug.LogWarning("[UPC] " + PresetPath + ": " + versionNotice, AssetDatabase.LoadMainAssetAtPath(PresetPath));
+                var actionable = rules.Where(rule => !plan.blocked.Contains(rule.name)).ToArray();
+                if (!apply)
+                {
+                    var satisfied = BuiltInModulePlan.SatisfiedActions(actionable, installed);
+                    Debug.Log("[UPC] " + PresetPath + ": Preview changes.\n" +
+                        "Enable explicitly: " + (plan.add.Length == 0 ? "none" : string.Join(", ", plan.add)) +
+                        "\nRemove explicit dependencies: " + (plan.remove.Length == 0 ? "none" : string.Join(", ", plan.remove)) +
+                        "\nAlready satisfied:\n" + (satisfied.Length == 0 ? "none" : string.Join("\n", satisfied)), AssetDatabase.LoadMainAssetAtPath(PresetPath));
+                    if (plan.retained.Length != 0)
+                        Debug.Log("[UPC] " + PresetPath + ": Retained as dependencies:\n" + string.Join("\n", plan.retained), AssetDatabase.LoadMainAssetAtPath(PresetPath));
+                    if (plan.errors.Length != 0) LogError(PresetPath, "Skipped actions:\n" + string.Join("\n", plan.errors));
+                    SetStatus("Preview complete: " + (plan.add.Length + plan.remove.Length) + " changes, " +
+                        plan.blocked.Length + " skipped, " + plan.retained.Length + " retained as dependencies. See Console for details.");
+                    return;
+                }
+                if (!plan.HasChanges)
+                {
+                    ReportResults(actionable, installed, plan.errors, plan.blocked.Length);
+                    return;
+                }
+                rules = actionable;
+                skipped = plan.errors; skippedCount = plan.blocked.Length;
+                SessionState.SetString(PendingKey, JsonUtility.ToJson(new PendingOperation
+                {
+                    builtInModules = rules, skipped = skipped, skippedCount = skippedCount
+                }));
+                SetStatus("Applying " + (plan.add.Length + plan.remove.Length) + " module changes…");
                 change = Client.AddAndRemove(plan.add, plan.remove);
             }
             catch (Exception error)
             {
                 search = null; list = null; change = null;
-                SetStatus("Module operation failed: " + error.Message);
+                ReportError("Module operation failed: " + error.Message);
                 // Preserve the snapshot if Unity may still be processing a mutation.
             }
+        }
+
+        static void ReportResults(BuiltInModuleRule[] actions, ModulePackageState[] installed, string[] skippedActions, int skippedTotal)
+        {
+            var succeeded = BuiltInModulePlan.SatisfiedActions(actions, installed);
+            var failed = BuiltInModulePlan.Violations(actions, installed);
+            var retained = BuiltInModulePlan.DependencyRetentions(actions, installed);
+            Debug.Log("[UPC] " + PresetPath + ": Preset completed.\nSucceeded (including already satisfied):\n" +
+                (succeeded.Length == 0 ? "none" : string.Join("\n", succeeded)), AssetDatabase.LoadMainAssetAtPath(PresetPath));
+            if (retained.Length != 0)
+                Debug.Log("[UPC] " + PresetPath + ": Retained as dependencies:\n" + string.Join("\n", retained), AssetDatabase.LoadMainAssetAtPath(PresetPath));
+            if (skippedActions.Length != 0 || failed.Length != 0)
+                LogError(PresetPath,
+                    (skippedActions.Length == 0 ? "" : "Skipped actions:\n" + string.Join("\n", skippedActions)) +
+                    (failed.Length == 0 ? "" : "\nFailed verification:\n" + string.Join("\n", failed)));
+            SetStatus("Preset completed: " + succeeded.Length + " succeeded, " + skippedTotal + " skipped, " +
+                failed.Length + " failed, " + retained.Length + " retained as dependencies. See Console for details.");
+        }
+
+        internal static void LogError(string presetPath, string message) =>
+            Debug.LogError("[UPC] " + presetPath + ": " + message, AssetDatabase.LoadMainAssetAtPath(presetPath));
+
+        static void ReportError(string message)
+        {
+            LogError(PresetPath, message);
+            SetStatus("See Console for preset diagnostics.");
         }
 
         static void SetStatus(string message) => SessionState.SetString(StatusKey, message);

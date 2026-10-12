@@ -137,9 +137,9 @@ If the picker fails, confirm sign-in and connectivity, then choose **Refresh**. 
 
 Choose **Assets → Create → Unity Built-in Preset**, then select the `.upcbuiltinjson` asset in the Inspector. Use **Add Built-in module**, select modules available in the current Editor, and choose **Enable** or **Disable**.
 
-**Preview changes** and **Apply preset** save the draft first. Preview discovers the current Editor's available modules and installed dependency graph. Apply executes only this preset through Unity's Package Manager, then verifies the result; script reloads do not repeat the mutation.
+**Preview changes** and **Apply preset** save the draft first. Preview discovers the current Editor's available modules and installed dependency graph. Apply adds or removes the requested direct project dependencies through Unity's Package Manager, skips unavailable or incompatible actions, then verifies the result; script reloads do not repeat the mutation. The Console lists successful actions, modules retained as dependencies with their dependency chains, skipped actions with reasons, and any verification failures. The Inspector shows only progress and a short summary.
 
-Unlisted modules remain unchanged. Presets are independent one-time actions: they do not merge across files, apply automatically, enforce builds, or add catalogue sources. Opposing presets can coexist. Unity's existing **Built-in** view shows current module state.
+Unlisted modules are not explicitly added or removed; Unity may enable dependencies needed by a requested module. Presets are independent one-time actions: they do not merge across files, apply automatically, enforce builds, or add catalogue sources. Opposing presets can coexist. Unity's existing **Built-in** view shows current module state.
 
 ```json
 {
@@ -153,7 +153,7 @@ Unlisted modules remain unchanged. Presets are independent one-time actions: the
 }
 ```
 
-`required` means enable when applying; `excluded` means disable. A module may appear only once per preset. The recorded Unity version is informative: a different current version shows a notice, and availability is checked against the running Editor. Missing modules and retained package dependencies block changes. `com.unity.modules.jsonserialize` cannot be disabled while this tool depends on it.
+`required` means explicitly enable when applying; `excluded` means remove the explicit project dependency, matching Unity's Built-in Disable button. If another package still needs the module, Unity keeps it installed as a dependency; this is a successful removal of the direct entry, not a fully disabled module. A module may appear only once per preset. The recorded Unity version is informative: a different current version shows a notice, and availability is checked against the running Editor. Unavailable enables and incompatible installed sources block only the affected actions; other enables and removals still proceed. Retained package dependencies do not block removal of direct manifest entries. Unity retains those modules indirectly and the Console explains why. Excluding a module already absent from the current Editor is already satisfied. `com.unity.modules.jsonserialize` stays installed as a dependency while this tool needs it, even after its direct project entry is removed.
 
 For older mixed catalogues, move `builtInModules` into a `.upcbuiltinjson` preset and remove the field from the `.upcjson` file. Mixed documents are rejected before rules can be silently lost. The old `.upcbuiltin` extension is no longer supported; rename the file together with its `.meta`, preferably through Unity's Project window.
 
@@ -175,7 +175,7 @@ The development project's `Assets/PackageCatalogs/Example Packages.upcjson` refe
 - **Missing script warning after upgrading:** reimport the asset and wait for compilation; importers have matching script filenames and custom Inspector editors.
 - **Invalid catalogue:** select it for repair in the Inspector. Correct the JSON or restore a valid version; the last valid source set remains active while open.
 - **Conflicting package definitions:** align the source/version for that ID across catalogues.
-- **Cannot disable a module:** read Preview's dependency chain and adjust the selected preset or retained package dependencies.
+- **Cannot disable a module:** read the dependency chain in the Console after Preview and adjust the selected preset or retained package dependencies.
 - **Integration stopped:** inspect the diagnostic in Preferences/Console, correct the cause, and turn the integration off and on to retry.
 
 See [TESTING.md](TESTING.md) for verified checks and release follow-ups, [architecture](Documentation~/ARCHITECTURE.md) for the adapter boundary, and [public release preparation](Documentation~/PUBLISHING.md) for repository metadata and remaining decisions. Include exact Unity/OS versions and redacted reproduction steps in issues.
