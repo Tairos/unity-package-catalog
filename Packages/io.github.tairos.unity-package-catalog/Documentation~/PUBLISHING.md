@@ -6,7 +6,7 @@
 - Package ID: `io.github.tairos.unity-package-catalog`
 - Package display name: Unity Package Catalog
 - License: `0BSD` (no attribution requirement); root `LICENSE` and package `LICENSE.md`
-- Current package version: `0.1.0-experimental.1`
+- Current package version: `0.1.0-experimental.3`
 - Supported native adapter: Unity 6000.6; tested Editor: 6000.6.0f1
 
 Suggested GitHub description:

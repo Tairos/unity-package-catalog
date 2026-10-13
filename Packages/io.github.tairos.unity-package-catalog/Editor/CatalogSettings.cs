@@ -21,6 +21,7 @@ namespace UnityPackageCatalog
             }
         }
         internal static Texture2D Icon => AssetDatabase.LoadAssetAtPath<Texture2D>(PackageRoot + "/Editor/Icons/UpcCatalogIcon.png");
+        internal static Texture2D BuiltInPresetIcon => AssetDatabase.LoadAssetAtPath<Texture2D>(PackageRoot + "/Editor/Icons/UpcBuiltInPresetIcon.png");
         public static bool Enabled => EditorPrefs.GetBool(Key + ".enabled", true);
 
         public static void SetEnabled(bool enabled)
