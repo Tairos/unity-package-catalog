@@ -69,7 +69,7 @@ namespace UnityPackageCatalog
                     var presetHeading = new Label("Built-in presets"); presetHeading.AddToClassList("upc-section-title"); root.Add(presetHeading);
                     var presetList = new VisualElement { name = "preset-list" }; root.Add(presetList);
                     root.Add(new Button(UpcBuiltInPresetEditor.CreatePreset) { text = "Create Built-in preset" });
-                    var presetHint = new Label("Presets are applied individually from their editor. They do not add a Package Manager source.");
+                    var presetHint = new Label("Apply a saved preset here, including presets in read-only packages. They do not add a Package Manager source. See Console for action details.");
                     presetHint.AddToClassList("upc-subtitle"); root.Add(presetHint);
                     string presetSignature = null;
                     string signature = null;
@@ -85,7 +85,8 @@ namespace UnityPackageCatalog
                             {
                                 var asset = AssetDatabase.LoadAssetAtPath<UpcBuiltInPresetAsset>(path);
                                 string title = Path.GetFileNameWithoutExtension(path), error = null;
-                                try { title = BuiltInPresetDocument.Load(path).displayName; } catch (Exception failure) { error = failure.Message; }
+                                BuiltInPresetDocument preset = null;
+                                try { preset = BuiltInPresetDocument.Load(path); title = preset.displayName; } catch (Exception failure) { error = failure.Message; }
                                 var row = new VisualElement(); row.AddToClassList("upc-catalogue-row"); presetList.Add(row);
                                 var select = new Button(() => { Selection.activeObject = asset; EditorGUIUtility.PingObject(asset); });
                                 select.AddToClassList("upc-catalogue-select"); row.Add(select);
@@ -94,6 +95,24 @@ namespace UnityPackageCatalog
                                 var location = new Label(path); location.AddToClassList("upc-subtitle"); text.Add(location);
                                 if (error != null) { var warning = new Label("Needs attention"); warning.tooltip = error; warning.AddToClassList("upc-error"); text.Add(warning); }
                                 row.Add(new Button(() => UpcAssetSelection.Select(asset)) { text = "Edit" });
+                                var operation = new Label(); operation.AddToClassList("upc-wrap");
+                                string runError = null;
+                                var apply = new Button(() =>
+                                {
+                                    try { BuiltInModuleRequirements.Apply(path); runError = null; }
+                                    catch (Exception failure) { runError = failure.Message; BuiltInModuleRequirements.LogError(path, runError); }
+                                    operation.text = runError ?? BuiltInModuleRequirements.Status;
+                                }) { text = "Apply preset", name = "apply-preset", tooltip = "Apply all saved module actions to this project without modifying the preset asset." };
+                                row.Add(apply);
+                                presetList.Add(operation);
+                                Action refreshOperation = () =>
+                                {
+                                    apply.SetEnabled(preset != null && preset.builtInModules.Length > 0 &&
+                                        !BuiltInModuleRequirements.Busy && !EditorApplication.isCompiling && !NativeCatalogBridge.IsPackageOperationInProgress());
+                                    operation.text = runError ?? (BuiltInModuleRequirements.PresetPath == path ? BuiltInModuleRequirements.Status : "");
+                                };
+                                refreshOperation();
+                                row.schedule.Execute(refreshOperation).Every(250);
                             }
                         }
                         var paths = CatalogRegistry.AssetPaths();

@@ -54,6 +54,8 @@ Your saved catalogues appear automatically in Package Manager.
 
 Open **Window → Package Management → Package Catalog Settings** to see all catalogues and Built-in presets in your project. Click a catalogue to select it, or **Edit** to open it in the Inspector. You can also create collections here and choose whether they appear in Package Manager.
 
+Each Built-in preset has an **Apply preset** button that executes all its saved module actions directly, including presets in read-only Git packages. Progress and results appear below the preset; the Console provides action details.
+
 ![Package Catalog Settings listing project catalogues and Built-in presets, with Edit and Create controls](.github/images/catalogue-settings.png)
 
 ## Asset Store collections

@@ -44,6 +44,8 @@ Imported catalogue assets under **Assets** and **Packages** are discovered autom
 
 **Window → Package Management → Package Catalog Settings** lists discovered catalogues and Built-in presets. Click a row to select/ping its asset; **Edit** focuses the Inspector. **Show catalogues in Package Manager** enables or disables sources for this project on this computer. It does not uninstall packages or disable preset actions.
 
+Each Built-in preset's **Apply preset** button executes all saved module actions without saving or modifying the asset, so it also works for read-only Git packages. Progress and results appear below the preset, with action details in the Console. Save any Inspector edits first if you want to apply them. Invalid or empty presets and ongoing package operations disable the button.
+
 Every catalogue has its own source, identified by its asset GUID. Commit `.meta` files: moving/renaming an asset preserves its identity, while deleting it removes its source without uninstalling packages.
 
 Installed UPM packages are shared across the project. The same package ID can appear in several catalogues only when its source and version agree. Invalid edits or conflicting definitions preserve the last valid source set until corrected. The integration refreshes while Package Manager is open, waiting for current package operations to finish.

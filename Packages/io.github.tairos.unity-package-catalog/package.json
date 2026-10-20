@@ -1,6 +1,6 @@
 {
   "name": "io.github.tairos.unity-package-catalog",
-  "version": "0.1.0-experimental.3",
+  "version": "0.1.0-experimental.4",
   "displayName": "Unity Package Catalog",
   "description": "Curated Git, local, UPM, and Asset Store collections inside Unity's native Package Manager, with Inspector authoring and Built-in module presets. Experimental Unity 6000.6 integration.",
   "unity": "6000.6",
