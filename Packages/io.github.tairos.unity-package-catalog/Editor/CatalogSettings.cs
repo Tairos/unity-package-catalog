@@ -62,7 +62,7 @@ namespace UnityPackageCatalog
                     var buttons = new VisualElement(); buttons.AddToClassList("upc-actions"); root.Add(buttons);
                     buttons.Add(new Button(UpcCatalogEditor.CreateCatalog) { text = "Create catalogue", name = "create-catalogue" });
                     buttons.Add(new Button(OpenCatalog) { text = "Open Package Manager" });
-                    var hint = new Label("Select a catalogue above to locate its asset. Edit the selected asset in the Inspector.");
+                    var hint = new Label("Import all installs every saved catalogue entry. Asset Store entries open Unity's import dialogs. Edit the selected asset in the Inspector.");
                     hint.AddToClassList("upc-subtitle"); root.Add(hint);
                     var enabled = new Toggle("Show catalogues in Package Manager") { value = Enabled };
                     enabled.AddToClassList("upc-setting"); enabled.RegisterValueChangedCallback(e => SetEnabled(e.newValue)); root.Add(enabled);
@@ -108,7 +108,7 @@ namespace UnityPackageCatalog
                                 Action refreshOperation = () =>
                                 {
                                     apply.SetEnabled(preset != null && preset.builtInModules.Length > 0 &&
-                                        !BuiltInModuleRequirements.Busy && !EditorApplication.isCompiling && !NativeCatalogBridge.IsPackageOperationInProgress());
+                                        !CatalogImport.Busy && !BuiltInModuleRequirements.Busy && !EditorApplication.isCompiling && !NativeCatalogBridge.IsPackageOperationInProgress());
                                     operation.text = runError ?? (BuiltInModuleRequirements.PresetPath == path ? BuiltInModuleRequirements.Status : "");
                                 };
                                 refreshOperation();
@@ -133,7 +133,8 @@ namespace UnityPackageCatalog
                         {
                             var asset = AssetDatabase.LoadAssetAtPath<UpcCatalogAsset>(path);
                             string title = Path.GetFileNameWithoutExtension(path), error = null;
-                            try { title = CatalogDocument.Load(path).displayName; }
+                            CatalogDocument catalogue = null;
+                            try { catalogue = CatalogDocument.Load(path); title = catalogue.displayName; }
                             catch (Exception entryError) { error = entryError.Message; }
                             var row = new VisualElement(); row.AddToClassList("upc-catalogue-row"); list.Add(row);
                             var select = new Button(() => { Selection.activeObject = asset; EditorGUIUtility.PingObject(asset); });
@@ -144,6 +145,27 @@ namespace UnityPackageCatalog
                             var location = new Label(path); location.AddToClassList("upc-subtitle"); text.Add(location);
                             if (error != null) { var warning = new Label("Needs attention"); warning.tooltip = error; warning.AddToClassList("upc-error"); text.Add(warning); }
                             row.Add(new Button(() => UpcAssetSelection.Select(asset)) { text = "Edit" });
+                            var operation = new Label(); operation.AddToClassList("upc-wrap");
+                            string runError = null;
+                            var import = new Button(() =>
+                            {
+                                try { CatalogImport.Begin(path); runError = null; }
+                                catch (Exception failure) { runError = failure.GetBaseException().Message; }
+                                operation.text = runError ?? CatalogImport.Status;
+                            }) { text = "Import all", name = "import-catalogue", tooltip = "Install all saved packages and import Asset Store entries without modifying this catalogue." };
+                            row.Add(import);
+                            var stop = new Button(CatalogImport.StopQueue) { text = "Stop queue" }; row.Add(stop);
+                            list.Add(operation);
+                            Action refreshOperation = () =>
+                            {
+                                import.SetEnabled(catalogue != null && catalogue.packages.Length > 0 && !CatalogImport.Busy &&
+                                    !BuiltInModuleRequirements.Busy && !EditorApplication.isCompiling && !NativeCatalogBridge.IsPackageOperationInProgress());
+                                stop.EnableInClassList("upc-hidden", !CatalogImport.Busy || CatalogImport.Path != path);
+                                stop.SetEnabled(CatalogImport.CanStopQueue);
+                                operation.text = runError ?? (CatalogImport.Path == path ? CatalogImport.Status : "");
+                            };
+                            refreshOperation();
+                            row.schedule.Execute(refreshOperation).Every(250);
                         }
                     };
                     refresh();

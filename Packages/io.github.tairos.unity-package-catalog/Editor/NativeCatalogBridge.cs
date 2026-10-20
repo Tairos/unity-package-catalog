@@ -297,6 +297,39 @@ namespace UnityPackageCatalog
         public static bool IsPackageOperationInProgress() =>
             (bool)GetProperty(Service("IPackageOperationDispatcher"), "isInstallOrUninstallInProgress");
 
+        internal static void FetchImportAsset(long id)
+        {
+            if (!(bool)GetProperty(Service("IUnityConnectProxy"), "isUserLoggedIn"))
+                throw new InvalidOperationException("Sign in to Unity to import Asset Store entries.");
+            Invoke(Service("IAssetStoreClient"), "ExtraFetch", id);
+        }
+
+        internal static string PrepareImportAsset(long id, ref bool downloadRequested)
+        {
+            var fetch = Invoke(Service("IFetchStatusTracker"), "GetProductInfoFetchStatus", id);
+            var error = GetField(fetch, "error");
+            if (error != null) throw new InvalidOperationException((string)GetProperty(error, "message"));
+            if (!IsAssetOwned(id)) return null;
+            var local = Invoke(Service("IAssetStoreCache"), "GetLocalInfo", id);
+            var path = local == null ? null : (string)GetField(local, "packagePath");
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
+            var downloads = Service("IAssetStoreDownloadManager");
+            if (!downloadRequested)
+            {
+                if (!(bool)Invoke(downloads, "Download", new long[] { id }))
+                    throw new InvalidOperationException("Unity could not start the Asset Store download. Check My Assets and try again.");
+                downloadRequested = true;
+            }
+            var operation = Invoke(downloads, "GetDownloadOperation", id);
+            if (operation != null)
+            {
+                var state = GetProperty(operation, "state").ToString();
+                if (state == "Error" || state == "Aborted")
+                    throw new InvalidOperationException("Asset Store download " + state + ": " + GetProperty(operation, "errorMessage"));
+            }
+            return null;
+        }
+
         internal static void FetchOwnedAssets(string search, int start, int limit, Action<CatalogEntry[], long> success, Action<string> failure)
         {
             if (!(bool)GetProperty(Service("IUnityConnectProxy"), "isUserLoggedIn"))

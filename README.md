@@ -56,6 +56,8 @@ Open **Window → Package Management → Package Catalog Settings** to see all c
 
 Each Built-in preset has an **Apply preset** button that executes all its saved module actions directly, including presets in read-only Git packages. Progress and results appear below the preset; the Console provides action details.
 
+Each catalogue also has **Import all**: install its saved Git, local and registry packages, then download Asset Store entries and review their Unity import dialogs one at a time. Both actions work with read-only catalogue assets.
+
 ![Package Catalog Settings listing project catalogues and Built-in presets, with Edit and Create controls](.github/images/catalogue-settings.png)
 
 ## Asset Store collections

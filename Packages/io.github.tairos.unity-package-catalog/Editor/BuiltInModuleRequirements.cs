@@ -49,7 +49,7 @@ namespace UnityPackageCatalog
 
         static void Begin(string presetPath, bool shouldApply)
         {
-            if (Busy || EditorApplication.isCompiling || NativeCatalogBridge.IsPackageOperationInProgress())
+            if (Busy || CatalogImport.Busy || EditorApplication.isCompiling || NativeCatalogBridge.IsPackageOperationInProgress())
                 throw new InvalidOperationException("Wait for the current Package Manager operation or compilation to finish.");
             if (!string.IsNullOrEmpty(SessionState.GetString(PendingKey, "")))
             {

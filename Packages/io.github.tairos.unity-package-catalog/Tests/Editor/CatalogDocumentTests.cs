@@ -58,6 +58,35 @@ namespace UnityPackageCatalog.Tests
         }
         [Test] public void EmptyCatalogueIsValid() => Assert.That(Load().packages, Is.Empty);
 
+        [Test] public void BulkImportPreservesSourcesAndSeparatesAssetStoreEntriesWithoutChangingAsset()
+        {
+            var local = Path.Combine(directory, "tool"); Directory.CreateDirectory(local);
+            File.WriteAllText(Path.Combine(local, "package.json"), JsonUtility.ToJson(Entry()));
+            var git = Entry("git+https://github.com/example/repository.git?path=/Packages/tool#v2");
+            git.name = "com.example.git";
+            var registry = Entry("registry"); registry.name = "com.example.registry";
+            var document = Load(git, registry, Entry("file:./tool"), new CatalogEntry { assetStoreProductId = 12345 });
+            var path = Path.Combine(directory, "catalog.upcjson");
+            var original = File.ReadAllText(path);
+            var plan = CatalogImport.CreatePlan(path, document);
+            Assert.That(plan.packageIds, Is.EqualTo(new[] { git.source, "com.example.registry@1.0.0", "file:" + local.Replace('\\', '/') }));
+            Assert.That(plan.assetIds, Is.EqualTo(new long[] { 12345 }));
+            Assert.That(File.ReadAllText(path), Is.EqualTo(original));
+            var restored = JsonUtility.FromJson<CatalogImport.Plan>(JsonUtility.ToJson(plan));
+            Assert.That(restored.packageIds, Is.EqualTo(plan.packageIds));
+            Assert.That(restored.assetIds, Is.EqualTo(plan.assetIds));
+        }
+
+        [TestCase("com.example.tool@1.0.0", "com.example.tool@1.0.0", true)]
+        [TestCase("com.example.tool@1.0.0", "com.example.tool@2.0.0", false)]
+        [TestCase("git+https://example.com/tool.git#v1", "com.example.tool@https://example.com/tool.git#v1", true)]
+        [TestCase("https://example.com/tool.git#v1", "com.example.tool@https://example.com/tool.git#v2", false)]
+        [TestCase("file:/tmp/tool", "com.example.tool@file:/tmp/tool", true)]
+        public void BulkImportVerificationRequiresRequestedSource(string requested, string installed, bool matches)
+        {
+            Assert.That(CatalogImport.MatchesId(requested, installed), Is.EqualTo(matches));
+        }
+
         [TestCase("null")]
         [TestCase("{}")]
         [TestCase("invalid json")]
